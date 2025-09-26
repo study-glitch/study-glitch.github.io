@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Study Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #e9f5ec;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      height: 100vh;
+      color: #333;
+    }
+
+    h1 { margin-top: 20px; font-size: 2em; }
+
+    .section {
+      background: #ffffff;
+      padding: 20px;
+      margin: 20px;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 600px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+
+    .section h2 { margin-top: 0; }
+
+    button, input[type="time"], input[type="number"], input[type="file"] {
+      font-size: 1.2em;
+      padding: 10px;
+      margin: 10px 0;
+      border: 1px solid #aaa;
+      border-radius: 8px;
+    }
+
+    button { background: #c8e6c9; cursor: pointer; }
+    button:hover { background: #a5d6a7; }
+
+    ul { list-style: none; padding: 0; }
+    li { margin: 5px 0; }
+
+    .big-timer { font-size: 2em; text-align: center; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>Study Dashboard</h1>
+
+  <!-- 24 Hour Continuous Timer -->
+  <div class="section">
+    <h2>24 Hour Timer</h2>
+    <div class="big-timer" id="continuousTimer">00:00:00</div>
+    <button onclick="startContinuousTimer()">Start</button>
+    <button onclick="resetContinuousTimer()">Reset</button>
+  </div>
+
+  <!-- Pomodoro Timer -->
+  <div class="section">
+    <h2>Pomodoro</h2>
+    <div class="big-timer" id="pomodoroDisplay">25:00</div>
+    <p id="pomodoroStatus">Ready</p>
+    <p>Completed Pomodoros: <span id="completedPomodoros">0</span></p>
+
+    <label>Pomodoro duration (min): <input type="number" id="pomodoroLength" value="25" min="1"></label><br>
+    <label>Short break (min): <input type="number" id="shortBreak" value="5" min="1"></label><br>
+    <label>Long break (min): <input type="number" id="longBreak" value="15" min="1"></label><br>
+    <label>Long break after every <input type="number" id="cyclesInput" value="4" min="1" style="width:60px;"> pomodoros</label><br>
+
+    <button onclick="startPomodoro()">Start Pomodoro</button>
+    <button onclick="stopPomodoro()">Stop</button>
+  </div>
+
+  <!-- Alarms -->
+  <div class="section">
+    <h2>Alarms</h2>
+    <input type="time" id="alarmTime">
+    <button onclick="setAlarm()">Set Alarm</button>
+    <ul id="alarmsList"></ul>
+    <h3>Upload Ringtone</h3>
+    <input type="file" id="ringtoneInput" accept="audio/*">
+    <button id="stopAlarmBtn" onclick="stopAlarm()">STOP ALARM</button>
+  </div>
+
+  <audio id="alarmSound" loop></audio>
+
+  <script>
+    /* Continuous Timer */
+    let continuousStart = null;
+    let continuousInterval = null;
+    function startContinuousTimer() {
+      if (!continuousStart) continuousStart = Date.now();
+      if (!continuousInterval) {
+        continuousInterval = setInterval(() => {
+          let elapsed = Date.now() - continuousStart;
+          let hours = Math.floor(elapsed / (1000 * 60 * 60));
+          let minutes = Math.floor((elapsed / (1000 * 60)) % 60);
+          let seconds = Math.floor((elapsed / 1000) % 60);
+          document.getElementById("continuousTimer").textContent =
+            String(hours).padStart(2,'0') + ":" +
+            String(minutes).padStart(2,'0') + ":" +
+            String(seconds).padStart(2,'0');
+        },1000);
+      }
+    }
+    function resetContinuousTimer() {
+      clearInterval(continuousInterval);
+      continuousInterval = null;
+      continuousStart = null;
+      document.getElementById("continuousTimer").textContent = "00:00:00";
+    }
+
+    /* Pomodoro */
+    let pomoInterval=null, pomoTimeLeft=0, pomoCycle=0, pomoRunning=false, onBreak=false;
+    function playBeep(){
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = ctx.createOscillator();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(1000, ctx.currentTime);
+      oscillator.connect(ctx.destination);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.3);
+    }
+    function updatePomodoroDisplay(){
+      let mins=Math.floor(pomoTimeLeft/60);
+      let secs=pomoTimeLeft%60;
+      document.getElementById("pomodoroDisplay").textContent = mins.toString().padStart(2,'0')+":"+secs.toString().padStart(2,'0');
+    }
+    function startPomodoro(){
+      if(pomoRunning) return;
+      let pomoLength=parseInt(document.getElementById("pomodoroLength").value,10)*60;
+      let shortBreak=parseInt(document.getElementById("shortBreak").value,10)*60;
+      let longBreak=parseInt(document.getElementById("longBreak").value,10)*60;
+      let cycles=parseInt(document.getElementById("cyclesInput").value,10);
+      function runCycle(){
+        pomoRunning=true;
+        pomoTimeLeft=pomoLength;
+        onBreak=false;
+        document.getElementById("pomodoroStatus").textContent="Pomodoro running...";
+        pomoInterval=setInterval(()=>{
+          pomoTimeLeft--;
+          updatePomodoroDisplay();
+          if(pomoTimeLeft<=0){
+            clearInterval(pomoInterval);
+            playBeep();
+            pomoCycle++;
+            document.getElementById("completedPomodoros").textContent=pomoCycle;
+            if(pomoCycle%cycles===0){
+              startBreak(longBreak,true);
+            } else {
+              startBreak(shortBreak,false);
+            }
+          }
+        },1000);
+      }
+      function startBreak(duration,long){
+        onBreak=true;
+        pomoRunning=true;
+        pomoTimeLeft=duration;
+        document.getElementById("pomodoroStatus").textContent = long?"Long Break...":"Short Break...";
+        pomoInterval=setInterval(()=>{
+          pomoTimeLeft--;
+          updatePomodoroDisplay();
+          if(pomoTimeLeft<=0){
+            clearInterval(pomoInterval);
+            playBeep();
+            onBreak=false;
+            pomoRunning=false;
+            runCycle();
+          }
+        },1000);
+      }
+      runCycle();
+    }
+    function stopPomodoro(){
+      clearInterval(pomoInterval);
+      pomoInterval=null;
+      pomoRunning=false;
+      onBreak=false;
+      pomoTimeLeft=parseInt(document.getElementById("pomodoroLength").value,10)*60;
+      updatePomodoroDisplay();
+      document.getElementById("pomodoroStatus").textContent="Stopped";
+    }
+
+    /* Alarms */
+    let alarms=[];
+    let alarmPlaying=false;
+    let currentAlarmAudio=null;
+
+    document.getElementById("ringtoneInput").addEventListener("change",function(e){
+      let file=e.target.files[0];
+      if(file){
+        document.getElementById("alarmSound").src=URL.createObjectURL(file);
+      }
+    });
+
+    function setAlarm(){
+      let time=document.getElementById("alarmTime").value;
+      if(!time) return;
+      alarms.push(time);
+      renderAlarms();
+    }
+
+    function renderAlarms(){
+      let list=document.getElementById("alarmsList");
+      list.innerHTML="";
+      alarms.forEach((alarm,index)=>{
+        let li=document.createElement("li");
+        li.textContent=alarm+" ";
+        let btn=document.createElement("button");
+        btn.textContent="Delete/Stop";
+        btn.onclick=()=>{ alarms.splice(index,1); renderAlarms(); stopAlarm(); };
+        li.appendChild(btn);
+        list.appendChild(li);
+      });
+    }
+
+    function stopAlarm(){
+      if(currentAlarmAudio){
+        currentAlarmAudio.pause();
+        currentAlarmAudio.currentTime=0;
+        alarmPlaying=false;
+      }
+    }
+
+    setInterval(()=>{
+      let now=new Date();
+      let current=now.toTimeString().slice(0,5);
+      alarms.forEach(alarm=>{
+        if(alarm===current && !alarmPlaying){
+          let audio=document.getElementById("alarmSound");
+          currentAlarmAudio=audio;
+          if(audio.src){ audio.currentTime=0; audio.play(); alarmPlaying=true; } else { alert("Alarm ringing for "+alarm); }
+        }
+      });
+    },1000);
+  </script>
+</body>
+</html>
